@@ -216,6 +216,7 @@ class NSAutoHTTPRequestHandler(BaseHTTPServer.BaseHTTPRequestHandler):
       print "COMMAND: %s" % command
 
       line = job.stdout.readline().rstrip()
+      queue.put(json.dumps( { 'event': 'command', 'data': " ".join(command) } ));
       while line:
         queue.put(line)
         #print "LINE: %s" % line
