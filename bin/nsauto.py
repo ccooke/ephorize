@@ -477,7 +477,8 @@ def dump_ui_options():
             "args": "--commit --no-confirm",
           }
         }
-      }
+      },
+      indent=2
     )
   )
 
