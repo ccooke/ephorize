@@ -11,7 +11,7 @@ function object_as_ul_recursive(item,indent,tag) {
   for ( var i = 0; i++; i < indent ) {
     padding += "  ";
   }
-  output = padding + "<ul id="+(tag || "_level_" + indent)+">\n";
+  output = padding + "<ul class=\""+tag+"\" id="+(tag || "_level_" + indent)+">\n";
   if ( typeof item === 'object' ) {
     var item_keys = Object.keys(item);
     var item_keys_length = item_keys.length;

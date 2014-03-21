@@ -36,6 +36,8 @@ class NSAutoHTTPRequestHandler(BaseHTTPServer.BaseHTTPRequestHandler):
     <html>
       <head>
         <title>{title}</title>
+        <link rel="stylesheet" type="text/css" href="/static/css/main.css"/>
+        <link rel="stylesheet" type="text/css" href="/static/css/{tool}.css"/>
       </head>
       <body>
         <div id="result"></div>
@@ -45,6 +47,7 @@ class NSAutoHTTPRequestHandler(BaseHTTPServer.BaseHTTPRequestHandler):
           var job_id = "{job_id}";
         </script>
         <script type="text/javascript" src="/static/js/events.js"></script>
+        <script type="text/javascript" src="/static/js/{tool}.js"></script>
       </body>
     </html>
   """
@@ -178,6 +181,7 @@ class NSAutoHTTPRequestHandler(BaseHTTPServer.BaseHTTPRequestHandler):
     form += "</form>\n"
 
     page = self.default_template.format( 
+      tool = tool,
       title = "%s/%s" % (tool, action_name), 
       form = form, 
       result = "",

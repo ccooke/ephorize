@@ -1,0 +1,24 @@
+.service_group_list {
+  background: None;
+}
+
+.service_group_list ul {
+  float: left;
+  margin: 0px;
+  padding: 0px;
+}
+.service_group_list ul li {
+  list-style: none;
+  padding: 4px 9px;
+}
+.service_group_list ul li.title {
+  font-weight: bold;
+  background: #333;
+  color: #fff;
+}
+.service_group_list ul li.even {
+  background: #fff;
+}
+.service_group_list ul li.odd {
+  background: #FFFFE6;
+}
