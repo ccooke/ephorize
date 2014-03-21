@@ -1,3 +1,5 @@
+#!/usr/bin/python 
+
 import BaseHTTPServer
 import SimpleHTTPServer
 import SocketServer
@@ -132,7 +134,7 @@ class NSAutoHTTPRequestHandler(BaseHTTPServer.BaseHTTPRequestHandler):
     if "root" not in action["subsequent_actions"] and action_name != "root":
       action["subsequent_actions"].append("root")
 
-    uri = "http://localhost:8000/%s/%s" % (tool, "root")
+    uri = "/%s/%s" % (tool, "root")
     form = "<form action=\""+ uri +"\" method=\"POST\">\n"
     form += "  <p>" + action["long_text"] + "</p>\n"
 
@@ -328,13 +330,15 @@ ThreadingSimpleServer.allow_reuse_address = True
 
 httpd = ThreadingSimpleServer(("",PORT), Handler)
 
-Handler.set_tools( 
-  { 
-    'nsauto': '/home/ccooke/bin/nsauto',
-    'event': Handler.do_event,
-    'static': Handler.do_static
-  } 
-)
+tools = {}
+for filename in os.listdir(os.curdir + "/tools"):
+  tools[filename] = os.curdir + "/tools/" + filename
+
+tools['event'] = Handler.do_event
+tools['static'] = Handler.do_static
+
+
+Handler.set_tools( tools )
 
 print "serving at port", PORT
 try:
