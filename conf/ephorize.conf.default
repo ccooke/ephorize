@@ -1,5 +1,11 @@
 [main] 
 port: 8443
-ldap_uri: ldaps://localhost
 ssl_cert: conf/self_signed_server.pem
 
+[Auth]
+mode: Simple
+username: admin
+password: ephorize
+# mode: AD
+# domain: Example
+# uri: ldaps://ad.server.name
