@@ -1,0 +1,5 @@
+[main] 
+port: 8443
+ldap_uri: ldaps://localhost
+ssl_cert: conf/self_signed_server.pem
+

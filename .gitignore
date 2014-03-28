@@ -37,3 +37,7 @@ nosetests.xml
 
 # VIM
 *.sw?
+
+# Ephorize config
+conf/ephorize.conf
+conf/self_signed_server.pem
