@@ -1,4 +1,4 @@
-var source = new EventSource('http://localhost:8000/event/' + session_id + '/' + job_id);
+var source = new EventSource('/event/' + session_id + '/' + job_id);
 source.addEventListener("message", eventHandler, false);
 var indexes = {};
 var pending = {};
@@ -57,7 +57,8 @@ function eventHandler(event) {
     output += object_as_ul_recursive(data.data[1],0,data.data[0] + indexes.data_tags[data.data[0]]);
     break;
   case 'finished':
-    source.removeEventListener("message", eventHandler);
+    source.close();
+    break;
   case 'pending_action_start':
     pending[indexes.pending] = {};
     pending[indexes.pending]['actions'] = {};
