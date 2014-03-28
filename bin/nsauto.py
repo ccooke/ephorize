@@ -438,12 +438,14 @@ def dump_ui_options():
             "short_text": "Return to the root menu",
             "long_text": "",
             "command": False,
+            "require_auth": False,
             "subsequent_actions": [ "select_netscaler" ],
           },
           "select_netscaler": {
             "short_text": "Choose a netscaler to work on",
             "fields": [ "hostname" ],
             "command": False,
+            "require_auth": False,
             "subsequent_actions": [ "search" ],
           },
           "search": {
