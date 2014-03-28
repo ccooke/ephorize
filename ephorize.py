@@ -1,5 +1,6 @@
 #!/usr/bin/python 
 
+import ConfigParser
 import BaseHTTPServer
 import SimpleHTTPServer
 import SocketServer
@@ -14,8 +15,64 @@ import uuid
 import os.path
 import mimetypes
 import shutil
+import ssl
+import ldap
+import ldap.filter
+import base64
+
 from pprint import pprint
 from time import time, strftime, localtime
+
+class ActiveDirectoryAuth:
+  def __init__(self, uri, domain, debug=False, trace=False):
+    self.uri = uri
+    self.domain = domain
+    print("Connecting to %s" % uri)
+    ldap.set_option(ldap.OPT_X_TLS_REQUIRE_CERT, ldap.OPT_X_TLS_ALLOW)
+    trace_level = 0
+
+    if debug:
+      ldap.set_option(ldap.OPT_DEBUG_LEVEL, 4095)
+
+    if trace:
+      trace_level = 2
+
+    self.ldap = ldap.initialize(self.uri, trace_level=trace_level)
+    self.ldap.protocol_version = 3
+
+  def debug(self):
+    self.ldap = ldap.initialize(self.uri, trace_level=2)
+    self.ldap.protocol_version = 3
+    
+
+  def authenticate(self, account_name, account_password):
+    if account_password == "":
+      self.last_error = { "user":account_name, "exception": "No password given" }
+      return False
+    try:
+      uid = "%s\\%s" % ( self.domain, ldap.filter.escape_filter_chars(account_name) )
+      self.last_result = { 
+        "user": account_name,
+        "result": self.ldap.simple_bind_s(uid, account_password)
+      }
+      if self.last_result:
+        return True
+      else:
+        return False
+    except ldap.LDAPError, e:
+      self.last_error = { "user":account_name, "exception": e }
+      return False
+
+class SimpleAuth:
+  def __init__(self, username, password):
+    self.username = username
+    self.password = password
+
+  def authenticate(self,username,password):
+    if self.username == username and self.password == password:
+      return True
+    else:
+      return False
 
 class ThreadingSimpleServer(SocketServer.ThreadingMixIn, BaseHTTPServer.HTTPServer):
   pass
@@ -30,6 +87,7 @@ class NSAutoHTTPRequestHandler(BaseHTTPServer.BaseHTTPRequestHandler):
     "fields": [],
     "args": "",
     "command": True,
+    "require_auth": True,
     "subsequent_actions": [ "root" ]
   }
   default_template = """
@@ -65,9 +123,14 @@ class NSAutoHTTPRequestHandler(BaseHTTPServer.BaseHTTPRequestHandler):
   def get_tool(self,tool):
     try:
       self.cache_lock.acquire()
-      if tool not in self.tool_cache.keys() or time() >= self.tool_cache[tool]["expiry"]:
+      if tool not in self.tool_cache or time() >= self.tool_cache[tool]["expiry"]:
+        if tool in os.listdir(os.curdir + "/tools/"):
+          executable_name = os.curdir + "/tools/" + tool
+        else:
+          raise Exception("Tool not found: %s" % tool)
+
         # re-cache the tool data
-        process = subprocess.Popen([ self.tools[tool], "--dump-ui-options"], stdout = subprocess.PIPE)
+        process = subprocess.Popen([ executable_name, "--dump-ui-options"], stdout = subprocess.PIPE)
         data = json.load( process.stdout )
         self.tool_cache[tool] = {
           'cache': data,
@@ -82,7 +145,7 @@ class NSAutoHTTPRequestHandler(BaseHTTPServer.BaseHTTPRequestHandler):
     try:
       self.session_lock.acquire()
       now = time()
-      for session in self.sessions.keys():
+      for session in self.sessions:
         expiry = self.get_session_var(session,'expires')
         if now > expiry:
           self.sessions.pop(session)
@@ -130,9 +193,36 @@ class NSAutoHTTPRequestHandler(BaseHTTPServer.BaseHTTPRequestHandler):
       session_dict['lock'].release()
     return value
 
+  def authorize(self):
+    auth_token = self.headers.getheader('Authorization')
+
+    if auth_token is None:
+      return False
+
+    if auth_token.startswith("Basic "):
+      mode, base64_key = auth_token.split(" ")
+      key = base64.b64decode(base64_key)
+      username, _, password = key.partition(":")
+      if self.auth_module.authenticate(username, password):
+        return True
+      else:
+        return False
+
+    return False
+
+      
   def display_action(self,tool,action_name,params={}):
     cache = self.get_tool(tool)
     action = dict(self.default_action.items() + cache["actions"][action_name].items())
+
+    if action["require_auth"]:
+      if not self.authorize():
+        self.send_response(401)
+        self.send_header('WWW-Authenticate', 'Basic realm=\"Ephorize\"')
+        self.send_header('Content-Type', 'text/html')
+        self.end_headers()
+        self.wfile.write("Access Denied")
+        raise Exception("Authentication failure")
 
     if "root" not in action["subsequent_actions"] and action_name != "root":
       action["subsequent_actions"].append("root")
@@ -141,7 +231,7 @@ class NSAutoHTTPRequestHandler(BaseHTTPServer.BaseHTTPRequestHandler):
     form = "<form action=\""+ uri +"\" method=\"POST\">\n"
     form += "  <p>" + action["long_text"] + "</p>\n"
 
-    if "session" in params.keys():
+    if "session" in params:
       print "RESTORE SESSION " + params["session"]
       session_id = self.get_session(params["session"])
     else:
@@ -149,7 +239,7 @@ class NSAutoHTTPRequestHandler(BaseHTTPServer.BaseHTTPRequestHandler):
       session_id = self.get_session()
     print "SESSION IS " + session_id
     self.session_id = session_id
-    if "job_id" in params.keys():
+    if "job_id" in params:
       saved_job_id = params["job_id"]
     else:
       saved_job_id = ""
@@ -165,7 +255,7 @@ class NSAutoHTTPRequestHandler(BaseHTTPServer.BaseHTTPRequestHandler):
     for field in action["fields"]:
       if field not in params:
         params[field] = ""
-      if "fields" in cache.keys() and field in cache["fields"].keys() and "label" in cache["fields"][field].keys():
+      if "fields" in cache and field in cache["fields"] and "label" in cache["fields"][field]:
         label = cache["fields"][field]["label"]
       else:
         label = field
@@ -199,15 +289,15 @@ class NSAutoHTTPRequestHandler(BaseHTTPServer.BaseHTTPRequestHandler):
     action_name = data["action"]
     cache = self.get_tool(tool)
     action = dict(self.default_action.items() + cache["actions"][action_name].items())
-    command = [ self.tools[tool] ]
+    command = [ os.curdir + "/tools/" + tool ]
     for cursor in cache, action:
-      if "args" in cursor.keys():
+      if "args" in cursor:
         for arg in cursor["args"].split():
           command.append(arg)
 
     for field in action["fields"]:
       command.append( "--" + field )
-      if field in data.keys():
+      if field in data:
         command.append( data[field] )
       else:
         command.append("")
@@ -241,7 +331,7 @@ class NSAutoHTTPRequestHandler(BaseHTTPServer.BaseHTTPRequestHandler):
     if not self.match:
       self.send_error(404, 'Path not found: %s' % self.path)
       return False
-    if self.match.group("tool") not in self.tools.keys():
+    if self.match.group("tool") not in self.tools and not self.match.group("tool") in os.listdir(os.curdir+"/tools/"):
       self.send_error(404, 'Tool not found: %s' % self.match.group("tool"))
       return False
     return True
@@ -302,11 +392,11 @@ class NSAutoHTTPRequestHandler(BaseHTTPServer.BaseHTTPRequestHandler):
     self.end_headers()
     while self.get_session_var(session_id,["jobs",jobid,"running"]):
       item = queue.get()
-      if item == "terminate":
-        queue.task_done()
-        return
-      self.wfile.write(u"event: message\nid: 1\ndata: %s\ndata:\n\n" % item)
       queue.task_done()
+      if item == "terminate":
+        break
+      self.wfile.write(u"event: message\nid: 1\ndata: %s\ndata:\n\n" % item)
+    self.wfile.write(u"event: message\nid: 1\ndata: { \"data\": [ \"finished\" ] }\n\n")
 
   def do_HEAD(self):
     if not self.do_common():
@@ -317,34 +407,48 @@ class NSAutoHTTPRequestHandler(BaseHTTPServer.BaseHTTPRequestHandler):
   def do_GET(self):  
     if not self.do_common():
       return
-    print( "GET %s" % self.path )
-    tool = self.tools[self.match.group("tool")]
-    if type(tool) == str:
+    if self.match.group("tool") in self.tools:
+      tool = self.tools[self.match.group("tool")]
+      tool(self)
+    else:
       if self.match.group("action"):
         self.display_action(self.match.group("tool"), self.match.group("action"))
       else:
         self.display_action(self.match.group("tool"), "root")
-    elif callable(tool):
-      tool(self)
-    
-PORT = 8000
+
+config = ConfigParser.RawConfigParser()
+config.add_section("main")
+config.set("main","port",8443)
+config.set("main","ssl_cert","self_signed_server.pem")
+config.add_section("Auth")
+config.set("Auth","uri","ldaps://localhost")
+config.set("Auth","domain","Local")
+config.set("Auth","mode","Simple")
+config.set("Auth","username", "admin")
+config.set("Auth","password", "ephorize")
+config.read(os.curdir + "/conf/ephorize.conf")
+pprint(config)
 
 Handler = NSAutoHTTPRequestHandler
 ThreadingSimpleServer.allow_reuse_address = True
 
-httpd = ThreadingSimpleServer(("",PORT), Handler)
+httpd = ThreadingSimpleServer(("",int(config.get("main","port"))), Handler)
+httpd.socket = ssl.wrap_socket( httpd.socket, certfile=config.get("main","ssl_cert"), server_side=True )
 
 tools = {}
-for filename in os.listdir(os.curdir + "/tools"):
-  tools[filename] = os.curdir + "/tools/" + filename
-
 tools['event'] = Handler.do_event
 tools['static'] = Handler.do_static
 
 
 Handler.set_tools( tools )
+if config.has_section("Auth"):
+  auth_mode = config.get("Auth","mode")
+  if auth_mode == "AD":
+    Handler.auth_module = ActiveDirectoryAuth(config.get("Auth","uri"), config.get("Auth","domain"))
+  else:
+    Handler.auth_module = SimpleAuth(config.get("Auth","username"),config.get("Auth","password"))
 
-print "serving at port", PORT
+print "serving at port", config.get("main","port")
 try:
   while True:
     sys.stdout.flush()
