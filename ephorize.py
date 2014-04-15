@@ -19,6 +19,7 @@ import ssl
 import ldap
 import ldap.filter
 import base64
+import syslog
 
 from pprint import pprint
 from time import time, strftime, localtime
@@ -136,6 +137,7 @@ class NSAutoHTTPRequestHandler(BaseHTTPServer.BaseHTTPRequestHandler):
           'cache': data,
           'expiry': time() + 600,
         }
+        syslog.syslog("loaded ui options for %s" % tool)
         print "Updated the tool cache for %s" % tool
     finally: 
       self.cache_lock.release()
@@ -193,7 +195,7 @@ class NSAutoHTTPRequestHandler(BaseHTTPServer.BaseHTTPRequestHandler):
       session_dict['lock'].release()
     return value
 
-  def authorize(self):
+  def authorize(self, session_id):
     auth_token = self.headers.getheader('Authorization')
 
     if auth_token is None:
@@ -204,6 +206,7 @@ class NSAutoHTTPRequestHandler(BaseHTTPServer.BaseHTTPRequestHandler):
       key = base64.b64decode(base64_key)
       username, _, password = key.partition(":")
       if self.auth_module.authenticate(username, password):
+        self.set_session_var(session_id, [ 'auth', 'user' ], username)
         return True
       else:
         return False
@@ -215,8 +218,13 @@ class NSAutoHTTPRequestHandler(BaseHTTPServer.BaseHTTPRequestHandler):
     cache = self.get_tool(tool)
     action = dict(self.default_action.items() + cache["actions"][action_name].items())
 
+    if "session" in params:
+      session_id = self.get_session(params["session"])
+    else:
+      session_id = self.get_session()
+
     if action["require_auth"]:
-      if not self.authorize():
+      if not self.authorize(session_id):
         self.send_response(401)
         self.send_header('WWW-Authenticate', 'Basic realm=\"Ephorize\"')
         self.send_header('Content-Type', 'text/html')
@@ -231,12 +239,6 @@ class NSAutoHTTPRequestHandler(BaseHTTPServer.BaseHTTPRequestHandler):
     form = "<form action=\""+ uri +"\" method=\"POST\">\n"
     form += "  <p>" + action["long_text"] + "</p>\n"
 
-    if "session" in params:
-      print "RESTORE SESSION " + params["session"]
-      session_id = self.get_session(params["session"])
-    else:
-      pprint(params.keys())
-      session_id = self.get_session()
     print "SESSION IS " + session_id
     self.session_id = session_id
     if "job_id" in params:
@@ -309,18 +311,25 @@ class NSAutoHTTPRequestHandler(BaseHTTPServer.BaseHTTPRequestHandler):
     self.set_session_var(self.session_id, [ 'jobs', data['job_id'], 'queue'], queue)
 
     def _command_thread():
-      print "COMMAND: %s" % command
+      user = self.get_session_var(self.session_id, [ 'auth', 'user' ])
+      syslog.syslog("[%s] User %s started command: %s" % (data['job_id'], user, " ".join(command)))
 
       line = job.stdout.readline().rstrip()
       queue.put(json.dumps( { 'event': 'command', 'data': " ".join(command) } ));
       while line:
         queue.put(line)
         #print "LINE: %s" % line
+        event_data = json.loads(line)
+        if "log" in event_data:
+          syslog.syslog("[%s] LOG: %s" %(data['job_id'], event_data['data']))
+
         line = job.stdout.readline().rstrip()
+      
+      returncode = job.wait()
+      syslog.syslog("[%s] command completed with return-code %d" % (data['job_id'], returncode))
       print "Script terminated"
       queue.put("terminate")
       self.set_session_var(self.session_id, [ 'jobs', data['job_id'], 'running'], False)
-
 
     thread = threading.Thread(target = _command_thread)
     self.set_session_var(self.session_id, [ 'jobs', data['job_id'], 'thread'], thread)
@@ -449,6 +458,7 @@ if config.has_section("Auth"):
     Handler.auth_module = SimpleAuth(config.get("Auth","username"),config.get("Auth","password"))
 
 print "serving at port", config.get("main","port")
+syslog.openlog("ephorize", logoption = syslog.LOG_PID)
 try:
   while True:
     sys.stdout.flush()

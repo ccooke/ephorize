@@ -58,7 +58,7 @@ class NetscalerAutomation:
   def dump(self,tag,obj):
     self.output.data(
       tag,
-      strip_object(obj)
+      strip_object(obj),
     )
 
   def init_connection(self):
@@ -196,10 +196,10 @@ class NetscalerAutomation:
       count += 1
       if action[0] == "enable_server":
         action[1].enable_server(self.nitro,action[2])
-        self.output.progress(count,len(self.actions),"Enabling %s:%d" % (action[2].get_servername(), action[2].get_port()), action[1].get_servicegroupname() )
+        self.output.progress(count,len(self.actions),"Enabling %s:%d" % (action[2].get_servername(), action[2].get_port()), action[1].get_servicegroupname(), log=True )
       elif action[0] == "disable_server":
         action[1].disable_server(self.nitro,action[2])
-        self.output.progress(count,len(self.actions),"Disabling %s:%d" % (action[2].get_servername(), action[2].get_port()), action[1].get_servicegroupname() )
+        self.output.progress(count,len(self.actions),"Disabling %s:%d" % (action[2].get_servername(), action[2].get_port()), action[1].get_servicegroupname(), log=True )
     self.output.progress_end()
 
 class NetscalerAutomationOutputHandler:
@@ -231,13 +231,15 @@ class NetscalerAutomationOutputHandler:
       return False
 
   def __getattr__(self,name):
-    def _missing(*args):
-      print json.dumps(
-        {
+    def _missing(*args, **keys):
+      tmp = {
           'event': name,
           'data': args
-        }
-      )
+      }
+      if "log" in keys and keys["log"]:
+        tmp['log'] = True
+
+      print json.dumps(tmp)
       sys.stdout.flush()
     return _missing
 
