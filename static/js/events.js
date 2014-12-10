@@ -92,7 +92,7 @@ function eventHandler(event) {
     indexes.pending++;
     break;
   default:
-    output += "<strong>" + event + "</strong>" + JSON.stringify(data) + "<br/>\n";
+    //output += "<strong>" + event + "</strong>" + JSON.stringify(data) + "<br/>\n";
   }
   document.querySelector('#result').innerHTML += output
 }

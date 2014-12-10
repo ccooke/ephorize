@@ -62,7 +62,7 @@ class NetscalerAutomation:
     )
 
   def init_connection(self):
-    self.nitro = NSNitro(self.auth.hostname,self.auth.username,self.auth.password)
+    self.nitro = NSNitro(self.auth.hostname,self.auth.username,self.auth.password, useSSL = True)
     try:
       self.nitro.login()
     except Exception as e:
@@ -187,6 +187,7 @@ class NetscalerAutomation:
     self.output.effect_end()
 
   def finished(self):
+    self.logout()
     self.output.finished()
 
   def commit(self):
@@ -196,11 +197,14 @@ class NetscalerAutomation:
       count += 1
       if action[0] == "enable_server":
         action[1].enable_server(self.nitro,action[2])
-        self.output.progress(count,len(self.actions),"Enabling %s:%d" % (action[2].get_servername(), action[2].get_port()), action[1].get_servicegroupname(), log=True )
+        self.output.progress(count,len(self.actions),"Enabling %s:%d" % (action[2].get_servername(), action[2].get_port()), action[1].get_servicegroupname() )
       elif action[0] == "disable_server":
         action[1].disable_server(self.nitro,action[2])
-        self.output.progress(count,len(self.actions),"Disabling %s:%d" % (action[2].get_servername(), action[2].get_port()), action[1].get_servicegroupname(), log=True )
+        self.output.progress(count,len(self.actions),"Disabling %s:%d" % (action[2].get_servername(), action[2].get_port()), action[1].get_servicegroupname() )
     self.output.progress_end()
+
+  def logout(self):
+    self.nitro.logout()
 
 class NetscalerAutomationOutputHandler:
   def __init__(self):
@@ -388,9 +392,10 @@ def display_help():
     --disable, -d   pattern   - A patterm to match against servers to disable
     --(no-)confirm            - Do (not) require confirmation before taking
                                 any actions. Enabled by default.
-    --(no-)commit             - (Do not) actually perform actions, rather than 
+    --(no-)commit             - Do (not) actually perform actions, rather than 
                                 display what would be changed. Disabled by 
                                 default
+    --(no-)status             - Do (not) display the current state
     --output-mode   mode      - Choose an output mode. Available are "cli",
                                 "cli_dumb" and "event".
 
@@ -460,25 +465,29 @@ def dump_ui_options():
             "short_text": "Enable some servers",
             "long_text": "",
             "fields": [ "hostname", "pattern", "enable" ],
-            "subsequent_actions": [ "enable_apply" ]
+            "subsequent_actions": [ "enable_apply", "disable_test", "search" ],
+            "args": "--no-status",
           },
           "enable_apply": {
             "short_text": "Commit the changes",
             "long_text": "",
             "fields": [ "hostname", "pattern", "enable" ],
-            "args": "--commit --no-confirm",
+            "args": "--commit --no-confirm --no-status",
+            "subsequent_actions": [ "disable_test", "enable_test", "search" ],
           },
           "disable_test": {
             "short_text": "Disable some servers",
             "long_text": "",
             "fields": [ "hostname", "pattern", "disable" ],
-            "subsequent_actions": [ "disable_apply" ]
+            "subsequent_actions": [ "disable_apply", "enable_test", "search" ],
+            "args": "--no-status",
           },
           "disable_apply": {
             "short_text": "Commit the changes",
             "long_text": "",
             "fields": [ "hostname", "pattern", "disable" ],
-            "args": "--commit --no-confirm",
+            "args": "--commit --no-confirm --no-status",
+            "subsequent_actions": [ "disable_test", "enable_test", "search" ],
           }
         }
       },
@@ -506,6 +515,7 @@ opts = {
   "h": ShortOpt("help"),
   "commit": False,
   "confirm": True,
+  "status": True,
 }
 if not sys.stdout.isatty():
   opts["output-mode"] = "cli_dumb"
@@ -550,7 +560,8 @@ if opts["pattern"] is None:
 
 # Stage 1: Print the current state
 svg_list = api.find_servicegroups(opts["pattern"])
-api.dump("service_group_list",svg_list)
+if opts["status"]:
+  api.dump("service_group_list",svg_list)
 
 api.begin_change()
 
@@ -575,6 +586,9 @@ if opts["confirm"]:
     exit(3)
 
 api.commit()
+
+if not opts["status"]:
+  exit(0)
 
 time.sleep(1)
 new_svg_list = api.find_servicegroups(opts["pattern"])

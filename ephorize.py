@@ -405,7 +405,7 @@ class NSAutoHTTPRequestHandler(BaseHTTPServer.BaseHTTPRequestHandler):
       if item == "terminate":
         break
       self.wfile.write(u"event: message\nid: 1\ndata: %s\ndata:\n\n" % item)
-    self.wfile.write(u"event: message\nid: 1\ndata: { \"data\": [ \"finished\" ] }\n\n")
+    self.wfile.write(u"event: message\nid: 1\ndata: { \"data\": [], \"event\": \"finished\" ] }\n\n")
 
   def do_HEAD(self):
     if not self.do_common():
